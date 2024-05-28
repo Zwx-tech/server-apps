@@ -1,0 +1,2 @@
+### Treść zadania
+Napisz funkcję pozwalającą zmieniać nazwę folderu i usuwać folder. W aplikacji są przygotowane "szkielety" funkcji, w których należy napisać odpowiedni kod oraz dodano odpowiednie ikony. Pamiętaj również o odpowiednich operacjach na bazie danych i komunikatach dla użytkownika. **- 4 pkt**
