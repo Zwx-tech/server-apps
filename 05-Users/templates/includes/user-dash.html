@@ -31,7 +31,11 @@
             <tbody>
                 {% for folder in folders %}
                     <tr>
-                        <td><i class="{{ folder.icon }} me-2"></i>{{ folder.folderName }}</td>
+                        <td>
+                            <i class="{{ folder.icon }} me-2"></i>
+                            <!-- Create a link for the folder name -->
+                            <a href="{{ url_for('dashboard', path=folder.folderPath) }}">{{ folder.folderName }}</a>
+                        </td>
                         <td>{{ folder.time }}</td>
                         <td></td>
                         <td>

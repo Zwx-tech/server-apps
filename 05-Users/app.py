@@ -1,3 +1,4 @@
+# pip install flask flask_sqlalchemy flask_login flask_wtf wtforms flask_wtf werkzeug flask_bcrypt flask_bs4
 from flask import Flask, render_template, redirect, url_for, flash, request, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin, LoginManager, login_user, logout_user, login_required, current_user
@@ -43,6 +44,7 @@ class Folders(db.Model):
     type = db.Column(db.String(20))
     icon = db.Column(db.String(20))
     time = db.Column(db.String(20))
+    folderPath = db.Column(db.String(200))
 
 class Files(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -184,9 +186,11 @@ def logout():
 def index():
     return render_template('index.html', title = 'Home', headline = 'Zarządzanie użytkownikami')
 
-@app.route('/dashboard')
+@app.route('/dashboard<path:string>')
 @login_required
-def dashboard():
+def dashboard(path):
+    if not path:
+        path = ''
     addUser = Add()
     editUser = Edit()
     editUserPass = ChangePass()
@@ -194,9 +198,17 @@ def dashboard():
     createFolder = CreateFolders()
     uploadFile = UploadFiles()
     allUsers = Users.query.all()
-    folders = Folders.query.all()
-    files = Files.query.all()
-    return render_template('dashboard.html', title='Dashboard', allUsers=allUsers, addUser=addUser, editUser=editUser, editUserPass=editUserPass, search=search, createFolder=createFolder, uploadFile=uploadFile, folders=folders, files=files)
+
+    # Get the absolute path of the directory the user is viewing
+    abs_path = os.path.join(app.config['UPLOAD_PATH'], path)
+
+    # Get the folders and files in the current directory
+    folders = [f for f in os.listdir(abs_path) if os.path.isdir(os.path.join(abs_path, f))]
+    files = [f for f in os.listdir(abs_path) if os.path.isfile(os.path.join(abs_path, f))]
+
+    return render_template('dashboard.html', title='Dashboard', allUsers=allUsers, addUser=addUser, editUser=editUser,
+                           editUserPass=editUserPass, search=search, createFolder=createFolder, uploadFile=uploadFile,
+                           folders=folders, files=files, path=path)
 
 @app.route('/addUser', methods=['POST', 'GET'])
 @login_required
@@ -264,18 +276,20 @@ def editUserPass(id):
         flash('Hasło zostało zmienione', 'success')
         return redirect(url_for('dashboard'))
 
-@app.route('/create-folder', methods=['GET', 'POST'])
+@app.route('/create-folder/<path:current_path>', methods=['GET', 'POST'])
 @login_required
-def createFolder():
+def createFolder(current_path):
     folderName = request.form['folderName']
     if folderName != '':
-        os.mkdir(os.path.join(app.config['UPLOAD_PATH'], folderName))
+        # Create the folder inside the current directory
+        folderPath = os.path.join(app.config['UPLOAD_PATH'], current_path, folderName)
+        os.makedirs(folderPath, exist_ok=True)
         time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        newFolder = Folders(folderName=folderName, type='folder', icon='bi bi-folder', time=time)
+        newFolder = Folders(folderName=folderName, folderPath=folderPath, type='folder', icon='bi bi-folder', time=time)
         db.session.add(newFolder)
         db.session.commit()
         flash('Folder utworzony poprawnie', 'success')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('dashboard', path=current_path))
 
 @app.route('/rename-folder', methods=['GET', 'POST'])
 @login_required
