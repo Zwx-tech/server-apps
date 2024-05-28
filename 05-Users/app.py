@@ -2,7 +2,9 @@ from flask import Flask, render_template, redirect, url_for, flash, request, abo
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin, LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf import FlaskForm
+from sqlalchemy.orm import relationship
 from wtforms import StringField, PasswordField, SubmitField, EmailField, SelectField, FileField
+from wtforms.fields.simple import HiddenField
 from wtforms.validators import DataRequired, Length
 from flask_wtf.file import FileAllowed
 from werkzeug.utils import secure_filename
@@ -39,18 +41,26 @@ class Users(db.Model, UserMixin):
 
 class Folders(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    folderName = db.Column(db.String(50), unique=True)
-    type = db.Column(db.String(20))
-    icon = db.Column(db.String(20))
-    time = db.Column(db.String(20))
+    folderName = db.Column(db.String(255), nullable=False)
+    type = db.Column(db.String(50), nullable=False)
+    icon = db.Column(db.String(50), nullable=False)
+    time = db.Column(db.String(50), nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('folders.id'), nullable=True)
+
+    parent = relationship('Folders', remote_side=[id], back_populates='subfolders')
+    subfolders = relationship('Folders', back_populates='parent', cascade='all, delete-orphan')
+    files = relationship('Files', back_populates='folder', cascade='all, delete-orphan')
 
 class Files(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    fileName = db.Column(db.String(50), unique=True)
-    type = db.Column(db.String(20))
-    icon = db.Column(db.String(20))
-    time = db.Column(db.String(20))
-    size = db.Column(db.String(20))
+    fileName = db.Column(db.String(255), nullable=False)
+    type = db.Column(db.String(50), nullable=False)
+    icon = db.Column(db.String(50), nullable=False)
+    size = db.Column(db.Float, nullable=False)
+    time = db.Column(db.String(50), nullable=False)
+    folder_id = db.Column(db.Integer, db.ForeignKey('folders.id'), nullable=True)
+
+    folder = relationship('Folders', back_populates='files')
 
 # konfiguracja Flask-Login
 loginManager = LoginManager()
@@ -115,6 +125,7 @@ class Search(FlaskForm):
 class CreateFolders(FlaskForm):
     """formularz tworzenia folderów"""
     folderName = StringField('Nazwa folderu', validators=[DataRequired()], render_kw={'placeholder': 'Nazwa folderu'})
+    parentId = HiddenField('Parent Folder')
     submit = SubmitField('Utwórz')
 
 class UploadFiles(FlaskForm):
@@ -184,19 +195,29 @@ def logout():
 def index():
     return render_template('index.html', title = 'Home', headline = 'Zarządzanie użytkownikami')
 
-@app.route('/dashboard')
+@app.route('/dashboard', defaults={'folder_id': None})
+@app.route('/dashboard/<int:folder_id>')
 @login_required
-def dashboard():
+def dashboard(folder_id):
+    print(f"dashborad: {folder_id}")
     addUser = Add()
     editUser = Edit()
     editUserPass = ChangePass()
     search = Search()
     createFolder = CreateFolders()
     uploadFile = UploadFiles()
+
     allUsers = Users.query.all()
-    folders = Folders.query.all()
-    files = Files.query.all()
-    return render_template('dashboard.html', title='Dashboard', allUsers=allUsers, addUser=addUser, editUser=editUser, editUserPass=editUserPass, search=search, createFolder=createFolder, uploadFile=uploadFile, folders=folders, files=files)
+    current_folder = Folders.query.get(folder_id) if folder_id else ''
+    id = folder_id if folder_id else ''
+    folders = db.session.query(Folders).filter(Folders.parent_id == id).all()
+    print(list(map(lambda x: x.parent_id, db.session.query(Folders).all())))
+    print(db.session.query(Folders).filter(Folders.parent_id == '').all())
+    files = Files.query.filter_by(folder_id=folder_id).all()
+
+    return render_template('dashboard.html', title='Dashboard', allUsers=allUsers, addUser=addUser,
+                           editUser=editUser, editUserPass=editUserPass, search=search, createFolder=createFolder,
+                           uploadFile=uploadFile, current_folder=id, folders=folders, files=files)
 
 @app.route('/addUser', methods=['POST', 'GET'])
 @login_required
@@ -264,18 +285,29 @@ def editUserPass(id):
         flash('Hasło zostało zmienione', 'success')
         return redirect(url_for('dashboard'))
 
-@app.route('/create-folder', methods=['GET', 'POST'])
+@app.route('/create-folder/<string:folder_id>', methods=['GET', 'POST'])
 @login_required
-def createFolder():
-    folderName = request.form['folderName']
-    if folderName != '':
-        os.mkdir(os.path.join(app.config['UPLOAD_PATH'], folderName))
+def create_folder(folder_id):
+    form = CreateFolders()
+    print(f"create_folder: {folder_id}")
+    if form.validate_on_submit():
+        folder_name = form.folderName.data
+        parent_id = folder_id
+
+        parent_folder = Folders.query.get(parent_id) if parent_id else None
+        parent_path = os.path.join(app.config['UPLOAD_PATH'], parent_folder.folderName if parent_folder else '')
+        folder_path = os.path.join(parent_path, folder_name)
+
+        os.makedirs(folder_path, exist_ok=True)
+
         time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        newFolder = Folders(folderName=folderName, type='folder', icon='bi bi-folder', time=time)
-        db.session.add(newFolder)
+        new_folder = Folders(folderName=folder_name, type='folder', icon='bi bi-folder', time=time, parent_id=parent_id)
+        db.session.add(new_folder)
         db.session.commit()
+
         flash('Folder utworzony poprawnie', 'success')
         return redirect(url_for('dashboard'))
+    return redirect(url_for('dashboard'))
 
 @app.route('/rename-folder', methods=['GET', 'POST'])
 @login_required
@@ -289,35 +321,33 @@ def deleteFolder():
 
 @app.route('/upload-file', methods=['GET', 'POST'])
 @login_required
-def uploadFile():
-    uploadedFile = request.files['fileName']
-    fileName = secure_filename(uploadedFile.filename)
-    if fileName != '':
-        fileExtension = os.path.splitext(fileName)[1]
-        if fileExtension not in app.config['UPLOAD_EXTENSIONS']:
+def upload_file():
+    form = UploadFiles()
+    if form.validate_on_submit():
+        uploaded_file = form.fileName.data
+        file_name = secure_filename(uploaded_file.filename)
+        folder_id = request.form.get('folder_id')
+        parent_folder = Folders.query.get(folder_id)
+        folder_path = os.path.join(app.config['UPLOAD_PATH'], parent_folder.folderName if parent_folder else '')
+        file_path = os.path.join(folder_path, file_name)
+
+        file_extension = os.path.splitext(file_name)[1]
+        if file_extension not in app.config['UPLOAD_EXTENSIONS']:
             abort(400)
-        type = ''
-        icon = ''
-        if fileExtension == '.png':
-            type = 'png'
-            icon = 'bi bi-filetype-png'
-        elif fileExtension == '.jpg':
-            type = 'jpg'
-            icon = 'bi bi-filetype-jpg'
-        elif fileExtension == '.jpeg':
-            type = 'jpeg'
-            icon = 'bi bi-filetype-jpg'
-        elif fileExtension == '.txt':
-            type = 'txt'
-            icon = 'bi bi-filetype-txt'
-        uploadedFile.save(os.path.join(app.config['UPLOAD_PATH'], fileName))
+        uploaded_file.save(file_path)
+
+        type = file_extension[1:]  # Strip the dot
+        icon = f'bi bi-filetype-{type}'
+
         time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        size = round(os.stat(os.path.join(app.config['UPLOAD_PATH'], fileName)).st_size / (1024 * 1024), 2)
-        newFile = Files(fileName=fileName, type=type, icon=icon, size=size, time=time)
-        db.session.add(newFile)
+        size = round(os.stat(file_path).st_size / (1024 * 1024), 2)
+        new_file = Files(fileName=file_name, type=type, icon=icon, size=size, time=time, folder_id=folder_id)
+        db.session.add(new_file)
         db.session.commit()
+
         flash('Plik przesłany poprawnie', 'success')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('dashboard', folder_id=folder_id))
+    return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     with app.app_context():
