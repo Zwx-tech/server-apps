@@ -209,7 +209,7 @@ def dashboard(folder_id):
 
     allUsers = Users.query.all()
     current_folder = Folders.query.get(folder_id) if folder_id else ''
-    id = folder_id if folder_id else ''
+    id = folder_id if folder_id else None
     folders = db.session.query(Folders).filter(Folders.parent_id == id).all()
     print(list(map(lambda x: x.parent_id, db.session.query(Folders).all())))
     print(db.session.query(Folders).filter(Folders.parent_id == '').all())
@@ -285,6 +285,7 @@ def editUserPass(id):
         flash('Hasło zostało zmienione', 'success')
         return redirect(url_for('dashboard'))
 
+@app.route('/create-folder/', defaults={'folder_id': None}, methods=['GET', 'POST'])
 @app.route('/create-folder/<string:folder_id>', methods=['GET', 'POST'])
 @login_required
 def create_folder(folder_id):
@@ -319,9 +320,10 @@ def renameFolder():
 def deleteFolder():
     return redirect(url_for('dashboard'))
 
-@app.route('/upload-file', methods=['GET', 'POST'])
+@app.route('/upload-file/', defaults={'folder_id': None}, methods=['GET', 'POST'])
+@app.route('/upload-file/<string"folder_id>', methods=['GET', 'POST'])
 @login_required
-def upload_file():
+def upload_file(folder_id):
     form = UploadFiles()
     if form.validate_on_submit():
         uploaded_file = form.fileName.data
@@ -348,6 +350,7 @@ def upload_file():
         flash('Plik przesłany poprawnie', 'success')
         return redirect(url_for('dashboard', folder_id=folder_id))
     return redirect(url_for('dashboard'))
+
 
 if __name__ == '__main__':
     with app.app_context():
