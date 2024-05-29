@@ -32,13 +32,13 @@
                 {% for folder in folders %}
                     <tr>
                         <td>
-                            <i class="{{ folder.icon }} me-2"></i>
-                            <!-- Create a link for the folder name -->
-                            <a href="{{ url_for('dashboard', path=folder.folderPath) }}">{{ folder.folderName }}</a>
+                            <a href="{{ url_for('dashboard', folder_id=folder.id) }}">
+                                <i class="{{ folder.icon }} me-2"></i>{{ folder.folderName }}
+                            </a>
                         </td>
                         <td>{{ folder.time }}</td>
                         <td></td>
-                        <td>
+                        <td class="text-end">
                             <i class="bi bi-pencil-square"></i>
                             <i class="bi bi-trash3 text-danger"></i>
                         </td>
@@ -49,7 +49,10 @@
                         <td><i class="{{ file.icon }} me-2"></i>{{ file.fileName }}</td>
                         <td>{{ file.time }}</td>
                         <td>{{ file.size }} MB</td>
-                        <td></td>
+                        <td class="text-end">
+                            <i class="bi bi-pencil-square"></i>
+                            <i class="bi bi-trash3 text-danger"></i>
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
