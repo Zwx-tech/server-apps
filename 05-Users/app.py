@@ -19,7 +19,7 @@ bootstrap = Bootstrap(app)
 app.config['SECRET_KEY'] = 'kjhgf6789THJKLOI*(*&O'
 bcrypt = Bcrypt(app)
 app.config['UPLOAD_PATH'] = 'uploads'
-app.config['UPLOAD_EXTENSIONS'] = ['.jpg', '.jpeg', '.png', '.txt']
+app.config['UPLOAD_EXTENSIONS'] = ['jpg', 'jpeg', 'png', 'txt']
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16MB
 
 # konfiguracja bazy danych
@@ -46,6 +46,7 @@ class Folders(db.Model):
     icon = db.Column(db.String(50), nullable=False)
     time = db.Column(db.String(50), nullable=False)
     parent_id = db.Column(db.Integer, db.ForeignKey('folders.id'), nullable=True)
+    path_to_folder = db.Column(db.String(255), nullable=True)
 
     parent = relationship('Folders', remote_side=[id], back_populates='subfolders')
     subfolders = relationship('Folders', back_populates='parent', cascade='all, delete-orphan')
@@ -130,7 +131,7 @@ class CreateFolders(FlaskForm):
 
 class UploadFiles(FlaskForm):
     """formularz przesyłania plików"""
-    fileName = FileField('Plik', validators=[FileAllowed([app.config['UPLOAD_EXTENSIONS']])], render_kw={'placeholder': '.jpg, .jpeg, .png, .txt'})
+    fileName = FileField('Plik', validators=[FileAllowed(app.config['UPLOAD_EXTENSIONS'])], render_kw={'placeholder': '.jpg, .jpeg, .png, .txt'})
     submit = SubmitField('Prześlij')
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -209,6 +210,7 @@ def dashboard(folder_id):
 
     allUsers = Users.query.all()
     current_folder = Folders.query.get(folder_id) if folder_id else ''
+    parent_folder = current_folder.parent_id if current_folder else False
     id = folder_id if folder_id else None
     folders = db.session.query(Folders).filter(Folders.parent_id == id).all()
     print(list(map(lambda x: x.parent_id, db.session.query(Folders).all())))
@@ -217,7 +219,7 @@ def dashboard(folder_id):
 
     return render_template('dashboard.html', title='Dashboard', allUsers=allUsers, addUser=addUser,
                            editUser=editUser, editUserPass=editUserPass, search=search, createFolder=createFolder,
-                           uploadFile=uploadFile, current_folder=id, folders=folders, files=files)
+                           uploadFile=uploadFile, current_folder=id, folders=folders, files=files, parent_folder=parent_folder)
 
 @app.route('/addUser', methods=['POST', 'GET'])
 @login_required
@@ -296,18 +298,20 @@ def create_folder(folder_id):
         parent_id = folder_id
 
         parent_folder = Folders.query.get(parent_id) if parent_id else None
-        parent_path = os.path.join(app.config['UPLOAD_PATH'], parent_folder.folderName if parent_folder else '')
+        path_to_folder = parent_folder.path_to_folder if parent_id else ''
+        parent_path = os.path.join(app.config['UPLOAD_PATH'], path_to_folder)
+        relative_path = os.path.join(path_to_folder, folder_name)
         folder_path = os.path.join(parent_path, folder_name)
 
         os.makedirs(folder_path, exist_ok=True)
 
         time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        new_folder = Folders(folderName=folder_name, type='folder', icon='bi bi-folder', time=time, parent_id=parent_id)
+        new_folder = Folders(folderName=folder_name, type='folder', icon='bi bi-folder', time=time, parent_id=parent_id, path_to_folder=relative_path)
         db.session.add(new_folder)
         db.session.commit()
 
         flash('Folder utworzony poprawnie', 'success')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('dashboard',  folder_id=parent_id))
     return redirect(url_for('dashboard'))
 
 @app.route('/rename-folder', methods=['GET', 'POST'])
@@ -315,41 +319,54 @@ def create_folder(folder_id):
 def renameFolder():
     return redirect(url_for('dashboard'))
 
-@app.route('/delete-folder', methods=['GET', 'POST'])
+@app.route('/delete-folder/', defaults={'folder_id': None}, methods=['GET', 'POST'])
+@app.route('/delete-folder/<string:folder_id>', methods=['GET', 'POST'])
 @login_required
-def deleteFolder():
-    return redirect(url_for('dashboard'))
+def deleteFolder(folder_id):
+    print(f"deleteFolder: {folder_id}")
+    folder = Folders.query.get(folder_id)
+    parent_id = folder.parent_id
+    os.removedirs(os.path.join(app.config['UPLOAD_PATH'], folder.path_to_folder))
+    db.session.delete(folder)
+    db.session.commit()
+    return redirect(url_for('dashboard', folder_id=parent_id))
 
 @app.route('/upload-file/', defaults={'folder_id': None}, methods=['GET', 'POST'])
-@app.route('/upload-file/<string"folder_id>', methods=['GET', 'POST'])
+@app.route('/upload-file/<string:folder_id>', methods=['GET', 'POST'])
 @login_required
 def upload_file(folder_id):
     form = UploadFiles()
-    if form.validate_on_submit():
-        uploaded_file = form.fileName.data
-        file_name = secure_filename(uploaded_file.filename)
-        folder_id = request.form.get('folder_id')
-        parent_folder = Folders.query.get(folder_id)
-        folder_path = os.path.join(app.config['UPLOAD_PATH'], parent_folder.folderName if parent_folder else '')
-        file_path = os.path.join(folder_path, file_name)
+    print("FILEUPLOAD", folder_id, form.validate_on_submit())
+    if not form.validate_on_submit(): return redirect(url_for('dashboard'))
 
-        file_extension = os.path.splitext(file_name)[1]
-        if file_extension not in app.config['UPLOAD_EXTENSIONS']:
-            abort(400)
-        uploaded_file.save(file_path)
+    uploaded_file = form.fileName.data
+    file_name = secure_filename(uploaded_file.filename)
+    print("FILENAME!!!!\n", file_name)
+    parent_id = folder_id
+    print("PARENT ID", parent_id)
+    parent_folder = Folders.query.get(int(parent_id)) if folder_id else None
+    print("PARENT FOLDER", parent_folder)
+    path_to_folder = parent_folder.path_to_folder if folder_id else ''
+    file_path = os.path.join(app.config['UPLOAD_PATH'], path_to_folder, file_name)
 
-        type = file_extension[1:]  # Strip the dot
-        icon = f'bi bi-filetype-{type}'
+    print("FILEPATH!!!!\n", file_path)
+    file_extension = os.path.splitext(file_name)[1]
+    # if file_extension not in app.config['UPLOAD_EXTENSIONS']:
+    #     abort(400)
 
-        time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        size = round(os.stat(file_path).st_size / (1024 * 1024), 2)
-        new_file = Files(fileName=file_name, type=type, icon=icon, size=size, time=time, folder_id=folder_id)
-        db.session.add(new_file)
-        db.session.commit()
+    uploaded_file.save(file_path)
 
-        flash('Plik przesłany poprawnie', 'success')
-        return redirect(url_for('dashboard', folder_id=folder_id))
-    return redirect(url_for('dashboard'))
+    type = file_extension[1:]  # Strip the dot
+    icon = f'bi bi-filetype-{type}'
+
+    time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    size = round(os.stat(file_path).st_size / (1024 * 1024), 2)
+    new_file = Files(fileName=file_name, type=type, icon=icon, size=size, time=time, folder_id=int(folder_id) if folder_id else None)
+    db.session.add(new_file)
+    db.session.commit()
+
+    flash('Plik przesłany poprawnie', 'success')
+    return redirect(url_for('dashboard', folder_id=folder_id))
 
 
 if __name__ == '__main__':

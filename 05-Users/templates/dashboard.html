@@ -198,11 +198,10 @@
                         <i class="bi bi-cloud-arrow-up pe-2 fs-5"></i>Przesyłanie pliku
                     </p>
                 </div>
-                <form method="post" action="{{ url_for('upload_file') }}" enctype="multipart/form-data">
+                <form method="post" action="{{ url_for('upload_file', folder_id=current_folder) }}" enctype="multipart/form-data">
                     <div class="modal-body">
                         {{ uploadFile.hidden_tag() }}
                         {{ uploadFile.fileName(class="form-control") }}
-                        <input type="hidden" name="folder_id" value="{{ current_folder.id if current_folder else '' }}">
                     </div>
                     <div class="modal-footer">
                         <button role="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Anuluj</button>
